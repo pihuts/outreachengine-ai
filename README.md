@@ -2,7 +2,7 @@
 
 An n8n workflow that reads leads from Google Sheets, fetches each lead's real website, and writes a personalized cold email grounded only in that content.
 
-![OutreachEngine AI workflow](screenshots/OutreachEngine%20AI.png)
+![OutreachEngine AI opened in n8n](screenshots/n8n-editor.png)
 
 ## What it does
 
