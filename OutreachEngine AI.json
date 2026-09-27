@@ -96,7 +96,7 @@
         0
       ],
       "parameters": {
-        "jsCode": "return (() => {\nconst row = $json;\nconst email = row.Email || row.email || '';\nconst website = row.Website || row.website || row.URL || row.url || '';\nif (!/^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(email)) throw new Error('Valid lead email required');\nlet safeSite = false;\ntry {\n  const u = new URL(website);\n  const host = u.hostname.toLowerCase();\n  safeSite = u.protocol === 'https:' && !u.username && !u.password &&\n    !/^(localhost|127\\.|10\\.|192\\.168\\.|169\\.254\\.|172\\.(1[6-9]|2[0-9]|3[01])\\.|0\\.|::1|\\[::1\\])/.test(host) &&\n    !host.endsWith('.local') && !host.endsWith('.internal');\n} catch {}\nif (!safeSite) return [{json: {...row, skip: true, skipReason: 'Invalid or private website URL', email}}];\nreturn [{\n  json: {\n    name: row.Name || row.name || '',\n    email,\n    company: row.Company || row.company || '',\n    title: row.Title || row.title || '',\n    website,\n    offer: row.Offer || row.offer || $env.COLD_EMAIL_OFFER || 'We help companies save time with automation.',\n    senderName: $env.COLD_EMAIL_SENDER_NAME || 'Your Name',\n    senderCompany: $env.COLD_EMAIL_SENDER_COMPANY || 'Your Company',\n    skip: false\n  }\n}];\n})()[0];",
+        "jsCode": "return (() => {\nconst row = $json;\nconst email = String(row.Email || row.email || '').trim().toLowerCase();\nconst website = row.Website || row.website || row.URL || row.url || '';\nif (!/^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(email)) throw new Error('Valid lead email required');\nlet safeSite = false;\ntry {\n  const u = new URL(website);\n  const host = u.hostname.toLowerCase();\n  safeSite = u.protocol === 'https:' && !u.username && !u.password &&\n    !/^(localhost|127\\.|10\\.|192\\.168\\.|169\\.254\\.|172\\.(1[6-9]|2[0-9]|3[01])\\.|0\\.|::1|\\[::1\\])/.test(host) &&\n    !host.endsWith('.local') && !host.endsWith('.internal');\n} catch {}\nif (!safeSite) return [{json: {...row, name: row.Name || row.name || '', email, company: row.Company || row.company || '', website, skip: true, skipReason: 'Invalid or private website URL'}}];\nreturn [{\n  json: {\n    name: row.Name || row.name || '',\n    email,\n    company: row.Company || row.company || '',\n    title: row.Title || row.title || '',\n    website,\n    offer: row.Offer || row.offer || $env.COLD_EMAIL_OFFER || 'We help companies save time with automation.',\n    senderName: $env.COLD_EMAIL_SENDER_NAME || 'Your Name',\n    senderCompany: $env.COLD_EMAIL_SENDER_COMPANY || 'Your Company',\n    skip: false\n  }\n}];\n})()[0];",
         "mode": "runOnceForEachItem"
       },
       "typeVersion": 2
@@ -251,7 +251,7 @@
       "name": "Create Gmail Draft",
       "type": "n8n-nodes-base.gmail",
       "position": [
-        4800,
+        5280,
         0
       ],
       "parameters": {
@@ -270,7 +270,7 @@
       "name": "Log Draft to Google Sheets",
       "type": "n8n-nodes-base.googleSheets",
       "position": [
-        5280,
+        5760,
         0
       ],
       "parameters": {
@@ -463,7 +463,7 @@
       "typeVersion": 2,
       "position": [
         1200,
-        0
+        -300
       ],
       "parameters": {
         "jsCode": "console.log(JSON.stringify({timestamp: new Date().toISOString(), runId: $json.runId, result: $json.status})); return [{json: {status: $json.status, runId: $json.runId}}];"
@@ -587,7 +587,7 @@
       "typeVersion": 2,
       "position": [
         3120,
-        0
+        -300
       ],
       "parameters": {
         "jsCode": "return (() => {\nreturn [{json: {...$json, flag: 'needs_human', reason: $json.skipReason, generatedAt: new Date().toISOString()}}];\n})()[0];",
@@ -633,7 +633,7 @@
       "typeVersion": 2,
       "position": [
         4080,
-        0
+        -300
       ],
       "parameters": {
         "jsCode": "return (() => {\nreturn [{json: {...$json, flag:'needs_human', reason:'Website unavailable or too thin', generatedAt:new Date().toISOString()}}];\n})()[0];",
@@ -646,7 +646,7 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        5040,
+        5520,
         0
       ],
       "parameters": {
@@ -660,11 +660,185 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        5520,
+        6000,
         0
       ],
       "parameters": {
         "jsCode": "console.log(JSON.stringify({timestamp:new Date().toISOString(), runId:String($execution.id), result:'recorded', action:'Log Draft to Google Sheets'})); return $input.all();"
+      }
+    },
+    {
+      "id": "cold-reserve",
+      "name": "Reserve Draft in Google Sheets",
+      "type": "n8n-nodes-base.googleSheets",
+      "position": [
+        4800,
+        0
+      ],
+      "parameters": {
+        "operation": "appendOrUpdate",
+        "documentId": {
+          "__rl": true,
+          "value": "={{ $env.COLD_EMAIL_SHEET_ID }}",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Drafts",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "matchingColumns": [
+            "Email"
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false,
+          "value": {
+            "Email": "={{ $json.email }}",
+            "Name": "={{ $json.name }}",
+            "Company": "={{ $json.company }}",
+            "Website": "={{ $json.website }}",
+            "Subject": "={{ $json.subject }}",
+            "Body": "={{ $json.body }}",
+            "Flag": "={{ $json.flag }}",
+            "Reason": "={{ $json.reason }}",
+            "Updated At": "={{ $json.generatedAt }}",
+            "Status": "=Draft creation pending"
+          },
+          "schema": [
+            {
+              "id": "Email",
+              "type": "string",
+              "display": true,
+              "removed": false,
+              "required": false,
+              "displayName": "Email",
+              "defaultMatch": false,
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Name",
+              "type": "string",
+              "display": true,
+              "removed": false,
+              "required": false,
+              "displayName": "Name",
+              "defaultMatch": false,
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Company",
+              "type": "string",
+              "display": true,
+              "removed": false,
+              "required": false,
+              "displayName": "Company",
+              "defaultMatch": false,
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Website",
+              "type": "string",
+              "display": true,
+              "removed": false,
+              "required": false,
+              "displayName": "Website",
+              "defaultMatch": false,
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Subject",
+              "type": "string",
+              "display": true,
+              "removed": false,
+              "required": false,
+              "displayName": "Subject",
+              "defaultMatch": false,
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Body",
+              "type": "string",
+              "display": true,
+              "removed": false,
+              "required": false,
+              "displayName": "Body",
+              "defaultMatch": false,
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Flag",
+              "type": "string",
+              "display": true,
+              "removed": false,
+              "required": false,
+              "displayName": "Flag",
+              "defaultMatch": false,
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Reason",
+              "type": "string",
+              "display": true,
+              "removed": false,
+              "required": false,
+              "displayName": "Reason",
+              "defaultMatch": false,
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Updated At",
+              "type": "string",
+              "display": true,
+              "removed": false,
+              "required": false,
+              "displayName": "Updated At",
+              "defaultMatch": false,
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Status",
+              "type": "string",
+              "display": true,
+              "removed": false,
+              "required": false,
+              "displayName": "Status",
+              "defaultMatch": false,
+              "canBeUsedToMatch": true
+            }
+          ]
+        },
+        "options": {}
+      },
+      "typeVersion": 4.5
+    },
+    {
+      "id": "cold-restore-before-draft",
+      "name": "Restore email before Gmail",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        5040,
+        0
+      ],
+      "parameters": {
+        "jsCode": "return (() => {\nreturn [{json: $('Normalize Email Output').item.json}];\n})()[0];",
+        "mode": "runOnceForEachItem"
+      }
+    },
+    {
+      "id": "cold-dedupe-leads",
+      "name": "Keep one lead per email",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1200,
+        0
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const seen = new Set();\nreturn $input.all().flatMap((item, index) => {\n  const email = String(item.json.Email || item.json.email || '').trim().toLowerCase();\n  if (email && seen.has(email)) return [];\n  if (email) seen.add(email);\n  return [{...item, pairedItem: {item: index}}];\n});"
       }
     }
   ],
@@ -695,7 +869,7 @@
       "main": [
         [
           {
-            "node": "Limit 5 Leads per Run",
+            "node": "Keep one lead per email",
             "type": "main",
             "index": 0
           }
@@ -794,7 +968,7 @@
       "main": [
         [
           {
-            "node": "Create Gmail Draft",
+            "node": "Reserve Draft in Google Sheets",
             "type": "main",
             "index": 0
           }
@@ -955,6 +1129,39 @@
         [
           {
             "node": "Audit log draft to google sheets",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Reserve Draft in Google Sheets": {
+      "main": [
+        [
+          {
+            "node": "Restore email before Gmail",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Restore email before Gmail": {
+      "main": [
+        [
+          {
+            "node": "Create Gmail Draft",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Keep one lead per email": {
+      "main": [
+        [
+          {
+            "node": "Limit 5 Leads per Run",
             "type": "main",
             "index": 0
           }

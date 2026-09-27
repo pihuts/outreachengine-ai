@@ -16,7 +16,8 @@ def run_code(name, payload, env=None, node_data=None):
     runner = r"""const vm=require('vm');
 const a=JSON.parse(process.argv[1]);
 const ctx={
-  $input:{first:()=>({json:a.payload,binary:a.binary}),all:()=>[{json:a.payload}]},
+  $input:{first:()=>({json:Array.isArray(a.payload)?a.payload[0]:a.payload,binary:a.binary}),
+          all:()=>Array.isArray(a.payload)?a.payload.map(json=>({json})):[{json:a.payload}]},
   $:name=>({first:()=>({json:a.nodeData?.[name]||{}}),item:{json:a.nodeData?.[name]||{}},all:()=>[{json:a.nodeData?.[name]||{}}]}),
   $env:a.env||{},$json:a.payload,$execution:{id:'smoke-123'},
   console:{log:()=>{}},Date,Intl,Number,String,JSON,Array,Error,URL};
@@ -24,7 +25,7 @@ try { const out=vm.runInNewContext('(()=>{'+a.code+'})()',ctx);
   process.stdout.write(JSON.stringify({ok:true,out})); }
 catch(e) { process.stdout.write(JSON.stringify({ok:false,error:e.message})); }"""
     process = subprocess.run(["node", "-e", runner, json.dumps({"code": code, "payload": payload, "env": env or {},
-                                                                 "nodeData": node_data or {}, "binary": payload.get("_binary")})],
+                                                                 "nodeData": node_data or {}, "binary": payload.get("_binary") if isinstance(payload, dict) else None})],
                              text=True, capture_output=True, timeout=10, check=True)
     return json.loads(process.stdout)
 
@@ -78,10 +79,24 @@ class WorkflowSmoke(unittest.TestCase):
             check = NODES["New " + lookup["parameters"]["sheetName"]["value"].lower() + "?"]
             self.assertIn("!$json['" + key + "']", check["parameters"]["conditions"]["conditions"][0]["leftValue"])
         if ROOT.name == "outreachengine-ai":
+            unique = run_code("Keep one lead per email", [
+                {"Email": "A@EXAMPLE.COM"}, {"Email": "a@example.com"}, {"Email": "b@example.com"}])
+            self.assertEqual([item["json"]["Email"] for item in unique["out"]], ["A@EXAMPLE.COM", "b@example.com"])
+            self.assertEqual(DOC["connections"]["Get Leads from Google Sheets"]["main"][0][0]["node"], "Keep one lead per email")
+            normal = run_code("Prepare Lead", {"Email": " A@Example.COM ", "Website": "https://example.com"})
+            self.assertEqual(normal["out"]["json"]["email"], "a@example.com")
             private = run_code("Prepare Lead", FIXTURE["private_lead"])
             self.assertTrue(private["out"]["json"]["skip"])
+            self.assertEqual(private["out"]["json"]["email"], FIXTURE["private_lead"]["Email"].lower())
+            for name in ("Record invalid lead", "Record unusable site"):
+                self.assertEqual(DOC["connections"][name]["main"][0][0]["node"], "Log Draft to Google Sheets")
             down = run_code("Clean Site Text", FIXTURE["network_down"], node_data={"Prepare Lead": FIXTURE["valid"]})
             self.assertFalse(down["out"]["json"]["siteUsable"])
+            route = DOC["connections"]
+            self.assertEqual(route["Email Ready?"]["main"][0][0]["node"], "Reserve Draft in Google Sheets")
+            self.assertEqual(route["Reserve Draft in Google Sheets"]["main"][0][0]["node"], "Restore email before Gmail")
+            self.assertEqual(route["Restore email before Gmail"]["main"][0][0]["node"], "Create Gmail Draft")
+            self.assertEqual(NODES["Reserve Draft in Google Sheets"]["parameters"]["columns"]["value"]["Status"], "=Draft creation pending")
         if ROOT.name == "careercompass-ai":
             cleaned = run_code("Clean Job Text", FIXTURE["valid"])
             self.assertIn("Manila", cleaned["out"][0]["json"]["cleaned_text"])
