@@ -1,0 +1,19 @@
+{
+  "valid": {
+    "Email": "lead@example.test",
+    "Website": "https://example.test",
+    "Name": "Rosa"
+  },
+  "empty": {},
+  "already_done": {
+    "Email": "lead@example.test",
+    "Status": "Draft created"
+  },
+  "network_down": {
+    "error": "ECONNRESET"
+  },
+  "private_lead": {
+    "Email": "lead@example.test",
+    "Website": "https://localhost/admin"
+  }
+}

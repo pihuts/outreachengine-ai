@@ -6,7 +6,10 @@
       "id": "cold-sticky",
       "name": "Sticky Note",
       "type": "n8n-nodes-base.stickyNote",
-      "position": [0, -480],
+      "position": [
+        -400,
+        -500
+      ],
       "parameters": {
         "width": 820,
         "height": 240,
@@ -18,7 +21,10 @@
       "id": "cold-manual",
       "name": "When clicking 'Test workflow'",
       "type": "n8n-nodes-base.manualTrigger",
-      "position": [-900, 0],
+      "position": [
+        0,
+        0
+      ],
       "parameters": {},
       "typeVersion": 1
     },
@@ -26,13 +32,18 @@
       "id": "cold-schedule",
       "name": "Weekly on Monday 9 AM",
       "type": "n8n-nodes-base.scheduleTrigger",
-      "position": [-900, 160],
+      "position": [
+        240,
+        0
+      ],
       "parameters": {
         "rule": {
           "interval": [
             {
               "field": "weeks",
-              "triggerAtDay": [1],
+              "triggerAtDay": [
+                1
+              ],
               "triggerAtHour": 9
             }
           ]
@@ -44,7 +55,10 @@
       "id": "cold-get-leads",
       "name": "Get Leads from Google Sheets",
       "type": "n8n-nodes-base.googleSheets",
-      "position": [-500, 0],
+      "position": [
+        960,
+        0
+      ],
       "parameters": {
         "documentId": {
           "__rl": true,
@@ -64,9 +78,12 @@
       "id": "cold-limit",
       "name": "Limit 5 Leads per Run",
       "type": "n8n-nodes-base.limit",
-      "position": [-300, 0],
+      "position": [
+        1440,
+        0
+      ],
       "parameters": {
-        "maxItems": 5
+        "maxItems": "={{ Number($env.OUTREACH_MAX_LEADS || 5) }}"
       },
       "typeVersion": 1
     },
@@ -74,9 +91,13 @@
       "id": "cold-prepare",
       "name": "Prepare Lead",
       "type": "n8n-nodes-base.code",
-      "position": [-100, 0],
+      "position": [
+        1680,
+        0
+      ],
       "parameters": {
-        "jsCode": "const row = $json;\nconst email = row.Email || row.email || '';\nconst website = row.Website || row.website || row.URL || row.url || '';\nif (!email) {\n  return [{ json: { ...row, skip: true, skipReason: 'Missing email' } }];\n}\nreturn [{\n  json: {\n    name: row.Name || row.name || '',\n    email,\n    company: row.Company || row.company || '',\n    title: row.Title || row.title || '',\n    website,\n    offer: row.Offer || row.offer || $env.COLD_EMAIL_OFFER || 'We help companies save time with automation.',\n    senderName: $env.COLD_EMAIL_SENDER_NAME || 'Your Name',\n    senderCompany: $env.COLD_EMAIL_SENDER_COMPANY || 'Your Company',\n    skip: false\n  }\n}];"
+        "jsCode": "return (() => {\nconst row = $json;\nconst email = String(row.Email || row.email || '').trim().toLowerCase();\nconst website = row.Website || row.website || row.URL || row.url || '';\nif (!/^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(email)) throw new Error('Valid lead email required');\nlet safeSite = false;\ntry {\n  const u = new URL(website);\n  const host = u.hostname.toLowerCase();\n  safeSite = u.protocol === 'https:' && !u.username && !u.password &&\n    !/^(localhost|127\\.|10\\.|192\\.168\\.|169\\.254\\.|172\\.(1[6-9]|2[0-9]|3[01])\\.|0\\.|::1|\\[::1\\])/.test(host) &&\n    !host.endsWith('.local') && !host.endsWith('.internal');\n} catch {}\nif (!safeSite) return [{json: {...row, name: row.Name || row.name || '', email, company: row.Company || row.company || '', website, skip: true, skipReason: 'Invalid or private website URL'}}];\nreturn [{\n  json: {\n    name: row.Name || row.name || '',\n    email,\n    company: row.Company || row.company || '',\n    title: row.Title || row.title || '',\n    website,\n    offer: row.Offer || row.offer || $env.COLD_EMAIL_OFFER || 'We help companies save time with automation.',\n    senderName: $env.COLD_EMAIL_SENDER_NAME || 'Your Name',\n    senderCompany: $env.COLD_EMAIL_SENDER_COMPANY || 'Your Company',\n    skip: false\n  }\n}];\n})()[0];",
+        "mode": "runOnceForEachItem"
       },
       "typeVersion": 2
     },
@@ -84,7 +105,10 @@
       "id": "cold-fetch",
       "name": "Fetch Website",
       "type": "n8n-nodes-base.httpRequest",
-      "position": [100, 0],
+      "position": [
+        2880,
+        0
+      ],
       "parameters": {
         "url": "={{ $json.website }}",
         "options": {
@@ -100,15 +124,22 @@
         "retryOnFail": true,
         "maxTries": 2
       },
-      "typeVersion": 4.2
+      "typeVersion": 4.2,
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000
     },
     {
       "id": "cold-clean",
       "name": "Clean Site Text",
       "type": "n8n-nodes-base.code",
-      "position": [300, 0],
+      "position": [
+        3360,
+        0
+      ],
       "parameters": {
-        "jsCode": "const item = $input.first().json;\nlet text = '';\nif (item.data && typeof item.data === 'string') {\n  text = item.data;\n} else if (item.error) {\n  text = 'Fetch error: ' + String(item.error);\n} else {\n  text = JSON.stringify(item);\n}\ntext = String(text)\n  .replace(/<script[\\s\\S]*?<\\/script>/gi, ' ')\n  .replace(/<style[\\s\\S]*?<\\/style>/gi, ' ')\n  .replace(/<[^>]*>/g, ' ')\n  .replace(/\\s+/g, ' ')\n  .trim()\n  .slice(0, 6000);\nconst words = text.split(/\\s+/).filter(Boolean).length;\nreturn [{ json: { ...item, siteText: text, siteWordCount: words, siteUsable: words >= 40 } }];"
+        "jsCode": "return (() => {\nconst item = $json;\nlet text = '';\nif (item.data && typeof item.data === 'string') {\n  text = item.data;\n} else if (item.error) {\n  text = 'Fetch error: ' + String(item.error);\n} else {\n  text = JSON.stringify(item);\n}\ntext = String(text)\n  .replace(/<script[\\s\\S]*?<\\/script>/gi, ' ')\n  .replace(/<style[\\s\\S]*?<\\/style>/gi, ' ')\n  .replace(/<[^>]*>/g, ' ')\n  .replace(/\\s+/g, ' ')\n  .trim()\n  .slice(0, 6000);\nconst words = text.split(/\\s+/).filter(Boolean).length;\nreturn [{ json: { ...$('Prepare Lead').item.json, ...item, siteText: text, siteWordCount: words, siteUsable: !item.error && words >= Number($env.OUTREACH_MIN_SITE_WORDS || 40) } }];\n})()[0];",
+        "mode": "runOnceForEachItem"
       },
       "typeVersion": 2
     },
@@ -116,7 +147,10 @@
       "id": "cold-model",
       "name": "OpenAI Chat Model",
       "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
-      "position": [700, -220],
+      "position": [
+        3840,
+        320
+      ],
       "parameters": {
         "model": {
           "__rl": true,
@@ -124,7 +158,8 @@
           "value": "gpt-5.6-terra"
         },
         "options": {
-          "temperature": 0.4
+          "temperature": 0.4,
+          "timeout": 30000
         }
       },
       "typeVersion": 1.2
@@ -133,7 +168,10 @@
       "id": "cold-parser",
       "name": "Structured Output Parser",
       "type": "@n8n/n8n-nodes-langchain.outputParserStructured",
-      "position": [900, -220],
+      "position": [
+        3840,
+        560
+      ],
       "parameters": {
         "schemaType": "manual",
         "inputSchema": "{\"type\":\"object\",\"properties\":{\"subject\":{\"type\":\"string\",\"description\":\"Subject under 60 characters, specific, no clickbait\"},\"body\":{\"type\":\"string\",\"description\":\"60-120 word plain text email body\"},\"flag\":{\"type\":\"string\",\"enum\":[\"ok\",\"needs_human\"],\"description\":\"ok when grounded in real site content, needs_human when site text is empty/broken/thin\"},\"reason\":{\"type\":\"string\",\"description\":\"One-line reason when needs_human, otherwise empty\"}},\"required\":[\"subject\",\"body\",\"flag\",\"reason\"]}"
@@ -144,7 +182,10 @@
       "id": "cold-chain",
       "name": "Write Grounded Email",
       "type": "@n8n/n8n-nodes-langchain.chainLlm",
-      "position": [700, 0],
+      "position": [
+        3840,
+        0
+      ],
       "parameters": {
         "text": "=LEAD:\nName: {{ $json.name }}\nCompany: {{ $json.company }}\nTitle: {{ $json.title }}\nSender: {{ $json.senderName }} at {{ $json.senderCompany }}\nOffer: {{ $json.offer }}\n\nSCRAPED WEBSITE TEXT:\n{{ $json.siteText }}",
         "messages": {
@@ -163,9 +204,13 @@
       "id": "cold-normalize",
       "name": "Normalize Email Output",
       "type": "n8n-nodes-base.code",
-      "position": [900, 0],
+      "position": [
+        4320,
+        0
+      ],
       "parameters": {
-        "jsCode": "const item = $input.first().json;\nconst raw = item.output || item;\nconst str = (v) => v === null || v === undefined ? '' : String(v);\nreturn [{\n  json: {\n    ...item,\n    subject: str(raw.subject),\n    body: str(raw.body),\n    flag: str(raw.flag) || 'needs_human',\n    reason: str(raw.reason),\n    generatedAt: new Date().toISOString()\n  }\n}];"
+        "jsCode": "return (() => {\nconst item = $json;\nconst raw = item.output || item;\nconst lead = $('Prepare Lead').item.json;\nconst site = $('Clean Site Text').item.json;\nconst str = (v) => v === null || v === undefined ? '' : String(v);\nreturn [{\n  json: {\n    ...lead,\n    subject: str(raw.subject),\n    body: str(raw.body),\n    flag: site.siteUsable && str(raw.flag) === 'ok' && str(raw.subject) && str(raw.body) ? 'ok' : 'needs_human',\n    reason: str(raw.reason),\n    generatedAt: new Date().toISOString()\n  }\n}];\n})()[0];",
+        "mode": "runOnceForEachItem"
       },
       "typeVersion": 2
     },
@@ -173,7 +218,10 @@
       "id": "cold-if",
       "name": "Email Ready?",
       "type": "n8n-nodes-base.if",
-      "position": [1100, 0],
+      "position": [
+        4560,
+        0
+      ],
       "parameters": {
         "options": {},
         "conditions": {
@@ -202,15 +250,18 @@
       "id": "cold-draft",
       "name": "Create Gmail Draft",
       "type": "n8n-nodes-base.gmail",
-      "position": [1300, -120],
+      "position": [
+        5280,
+        0
+      ],
       "parameters": {
-        "message": "={{ $json.body.replace(/\\n/g, '<br />\\n') }}",
+        "message": "={{ $json.body }}",
         "options": {
-          "sendTo": "={{ $json.email }}"
+          "sendTo": "={{ $('Normalize Email Output').item.json.email }}"
         },
         "subject": "={{ $json.subject }}",
         "resource": "draft",
-        "emailType": "html"
+        "emailType": "text"
       },
       "typeVersion": 2.1
     },
@@ -218,7 +269,10 @@
       "id": "cold-log",
       "name": "Log Draft to Google Sheets",
       "type": "n8n-nodes-base.googleSheets",
-      "position": [1300, 80],
+      "position": [
+        5760,
+        0
+      ],
       "parameters": {
         "operation": "appendOrUpdate",
         "documentId": {
@@ -356,6 +410,436 @@
         "options": {}
       },
       "typeVersion": 4.5
+    },
+    {
+      "id": "preflight",
+      "name": "Preflight",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        480,
+        0
+      ],
+      "parameters": {
+        "jsCode": "const env = $env;\nconst enabled = env.OUTREACH_ENABLED === 'true';\nconst dryRun = env.OUTREACH_DRY_RUN !== 'false';\nconst required = [\"COLD_EMAIL_SHEET_ID\", \"COLD_EMAIL_SENDER_NAME\", \"COLD_EMAIL_SENDER_COMPANY\", \"COLD_EMAIL_OFFER\", \"OUTREACH_ALERT_EMAIL_TO\"];\nif (enabled && !dryRun) {\n  const missing = required.filter(key => !String(env[key] || '').trim());\n  if (missing.length) throw new Error('Missing configuration: ' + missing.join(', '));\n}\nconst runId = String($execution.id);\nconst status = !enabled ? 'disabled' : dryRun ? 'dry_run' : 'running';\nconsole.log(JSON.stringify({timestamp: new Date().toISOString(), runId, workflow: 'OUTREACH', status}));\nconst first = $input.first();\nreturn [{json: {...first.json, runId, status, runLive: status === 'running'}, ...(first.binary ? {binary: first.binary} : {})}];"
+      }
+    },
+    {
+      "id": "run-live?",
+      "name": "Run live?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        720,
+        0
+      ],
+      "parameters": {
+        "options": {},
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "typeValidation": "strict"
+          },
+          "combinator": "and",
+          "conditions": [
+            {
+              "id": "live-run",
+              "leftValue": "={{ $json.runLive }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "stopped-or-dry-run",
+      "name": "Stopped or dry run",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1200,
+        -300
+      ],
+      "parameters": {
+        "jsCode": "console.log(JSON.stringify({timestamp: new Date().toISOString(), runId: $json.runId, result: $json.status})); return [{json: {status: $json.status, runId: $json.runId}}];"
+      }
+    },
+    {
+      "id": "valid-lead?",
+      "name": "Valid lead?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        2640,
+        0
+      ],
+      "parameters": {
+        "options": {},
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "typeValidation": "strict"
+          },
+          "combinator": "and",
+          "conditions": [
+            {
+              "id": "valid-lead",
+              "leftValue": "={{ $json.skip }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "false",
+                "singleValue": true
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "find-existing-drafts",
+      "name": "Find existing drafts",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        1920,
+        0
+      ],
+      "parameters": {
+        "operation": "read",
+        "documentId": {
+          "__rl": true,
+          "value": "={{ $env.COLD_EMAIL_SHEET_ID }}",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Drafts",
+          "mode": "name"
+        },
+        "filtersUI": {
+          "values": [
+            {
+              "lookupColumn": "Email",
+              "lookupValue": "={{ $json.email }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "alwaysOutputData": true
+    },
+    {
+      "id": "new-drafts?",
+      "name": "New drafts?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        2160,
+        0
+      ],
+      "parameters": {
+        "options": {},
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "typeValidation": "strict"
+          },
+          "combinator": "and",
+          "conditions": [
+            {
+              "id": "new-record",
+              "leftValue": "={{ !$json['Email'] }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "restore-input-for-drafts",
+      "name": "Restore input for drafts",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2400,
+        0
+      ],
+      "parameters": {
+        "jsCode": "return (() => {\nreturn [{json: $('Prepare Lead').item.json}];\n})()[0];",
+        "mode": "runOnceForEachItem"
+      }
+    },
+    {
+      "id": "record-invalid-lead",
+      "name": "Record invalid lead",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3120,
+        -300
+      ],
+      "parameters": {
+        "jsCode": "return (() => {\nreturn [{json: {...$json, flag: 'needs_human', reason: $json.skipReason, generatedAt: new Date().toISOString()}}];\n})()[0];",
+        "mode": "runOnceForEachItem"
+      }
+    },
+    {
+      "id": "website-usable?",
+      "name": "Website usable?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        3600,
+        0
+      ],
+      "parameters": {
+        "options": {},
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "typeValidation": "strict"
+          },
+          "combinator": "and",
+          "conditions": [
+            {
+              "id": "usable-site",
+              "leftValue": "={{ $json.siteUsable }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "record-unusable-site",
+      "name": "Record unusable site",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4080,
+        -300
+      ],
+      "parameters": {
+        "jsCode": "return (() => {\nreturn [{json: {...$json, flag:'needs_human', reason:'Website unavailable or too thin', generatedAt:new Date().toISOString()}}];\n})()[0];",
+        "mode": "runOnceForEachItem"
+      }
+    },
+    {
+      "id": "restore-normalize-email-output",
+      "name": "Restore Normalize Email Output",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        5520,
+        0
+      ],
+      "parameters": {
+        "jsCode": "return (() => {\nreturn [{json: $('Normalize Email Output').item.json}];\n})()[0];",
+        "mode": "runOnceForEachItem"
+      }
+    },
+    {
+      "id": "audit-log-draft-to-google-sheets",
+      "name": "Audit log draft to google sheets",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        6000,
+        0
+      ],
+      "parameters": {
+        "jsCode": "console.log(JSON.stringify({timestamp:new Date().toISOString(), runId:String($execution.id), result:'recorded', action:'Log Draft to Google Sheets'})); return $input.all();"
+      }
+    },
+    {
+      "id": "cold-reserve",
+      "name": "Reserve Draft in Google Sheets",
+      "type": "n8n-nodes-base.googleSheets",
+      "position": [
+        4800,
+        0
+      ],
+      "parameters": {
+        "operation": "appendOrUpdate",
+        "documentId": {
+          "__rl": true,
+          "value": "={{ $env.COLD_EMAIL_SHEET_ID }}",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Drafts",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "matchingColumns": [
+            "Email"
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false,
+          "value": {
+            "Email": "={{ $json.email }}",
+            "Name": "={{ $json.name }}",
+            "Company": "={{ $json.company }}",
+            "Website": "={{ $json.website }}",
+            "Subject": "={{ $json.subject }}",
+            "Body": "={{ $json.body }}",
+            "Flag": "={{ $json.flag }}",
+            "Reason": "={{ $json.reason }}",
+            "Updated At": "={{ $json.generatedAt }}",
+            "Status": "=Draft creation pending"
+          },
+          "schema": [
+            {
+              "id": "Email",
+              "type": "string",
+              "display": true,
+              "removed": false,
+              "required": false,
+              "displayName": "Email",
+              "defaultMatch": false,
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Name",
+              "type": "string",
+              "display": true,
+              "removed": false,
+              "required": false,
+              "displayName": "Name",
+              "defaultMatch": false,
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Company",
+              "type": "string",
+              "display": true,
+              "removed": false,
+              "required": false,
+              "displayName": "Company",
+              "defaultMatch": false,
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Website",
+              "type": "string",
+              "display": true,
+              "removed": false,
+              "required": false,
+              "displayName": "Website",
+              "defaultMatch": false,
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Subject",
+              "type": "string",
+              "display": true,
+              "removed": false,
+              "required": false,
+              "displayName": "Subject",
+              "defaultMatch": false,
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Body",
+              "type": "string",
+              "display": true,
+              "removed": false,
+              "required": false,
+              "displayName": "Body",
+              "defaultMatch": false,
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Flag",
+              "type": "string",
+              "display": true,
+              "removed": false,
+              "required": false,
+              "displayName": "Flag",
+              "defaultMatch": false,
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Reason",
+              "type": "string",
+              "display": true,
+              "removed": false,
+              "required": false,
+              "displayName": "Reason",
+              "defaultMatch": false,
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Updated At",
+              "type": "string",
+              "display": true,
+              "removed": false,
+              "required": false,
+              "displayName": "Updated At",
+              "defaultMatch": false,
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Status",
+              "type": "string",
+              "display": true,
+              "removed": false,
+              "required": false,
+              "displayName": "Status",
+              "defaultMatch": false,
+              "canBeUsedToMatch": true
+            }
+          ]
+        },
+        "options": {}
+      },
+      "typeVersion": 4.5
+    },
+    {
+      "id": "cold-restore-before-draft",
+      "name": "Restore email before Gmail",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        5040,
+        0
+      ],
+      "parameters": {
+        "jsCode": "return (() => {\nreturn [{json: $('Normalize Email Output').item.json}];\n})()[0];",
+        "mode": "runOnceForEachItem"
+      }
+    },
+    {
+      "id": "cold-dedupe-leads",
+      "name": "Keep one lead per email",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1200,
+        0
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const seen = new Set();\nreturn $input.all().flatMap((item, index) => {\n  const email = String(item.json.Email || item.json.email || '').trim().toLowerCase();\n  if (email && seen.has(email)) return [];\n  if (email) seen.add(email);\n  return [{...item, pairedItem: {item: index}}];\n});"
+      }
     }
   ],
   "connections": {
@@ -363,7 +847,7 @@
       "main": [
         [
           {
-            "node": "Get Leads from Google Sheets",
+            "node": "Preflight",
             "type": "main",
             "index": 0
           }
@@ -374,7 +858,7 @@
       "main": [
         [
           {
-            "node": "Get Leads from Google Sheets",
+            "node": "Preflight",
             "type": "main",
             "index": 0
           }
@@ -385,7 +869,7 @@
       "main": [
         [
           {
-            "node": "Limit 5 Leads per Run",
+            "node": "Keep one lead per email",
             "type": "main",
             "index": 0
           }
@@ -407,7 +891,7 @@
       "main": [
         [
           {
-            "node": "Fetch Website",
+            "node": "Find existing drafts",
             "type": "main",
             "index": 0
           }
@@ -429,7 +913,7 @@
       "main": [
         [
           {
-            "node": "Write Grounded Email",
+            "node": "Website usable?",
             "type": "main",
             "index": 0
           }
@@ -484,7 +968,7 @@
       "main": [
         [
           {
-            "node": "Create Gmail Draft",
+            "node": "Reserve Draft in Google Sheets",
             "type": "main",
             "index": 0
           }
@@ -502,7 +986,182 @@
       "main": [
         [
           {
+            "node": "Restore Normalize Email Output",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Preflight": {
+      "main": [
+        [
+          {
+            "node": "Run live?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Run live?": {
+      "main": [
+        [
+          {
+            "node": "Get Leads from Google Sheets",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Stopped or dry run",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Valid lead?": {
+      "main": [
+        [
+          {
+            "node": "Fetch Website",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Record invalid lead",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Find existing drafts": {
+      "main": [
+        [
+          {
+            "node": "New drafts?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "New drafts?": {
+      "main": [
+        [
+          {
+            "node": "Restore input for drafts",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Restore input for drafts": {
+      "main": [
+        [
+          {
+            "node": "Valid lead?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Record invalid lead": {
+      "main": [
+        [
+          {
             "node": "Log Draft to Google Sheets",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Website usable?": {
+      "main": [
+        [
+          {
+            "node": "Write Grounded Email",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Record unusable site",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Record unusable site": {
+      "main": [
+        [
+          {
+            "node": "Log Draft to Google Sheets",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Restore Normalize Email Output": {
+      "main": [
+        [
+          {
+            "node": "Log Draft to Google Sheets",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log Draft to Google Sheets": {
+      "main": [
+        [
+          {
+            "node": "Audit log draft to google sheets",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Reserve Draft in Google Sheets": {
+      "main": [
+        [
+          {
+            "node": "Restore email before Gmail",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Restore email before Gmail": {
+      "main": [
+        [
+          {
+            "node": "Create Gmail Draft",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Keep one lead per email": {
+      "main": [
+        [
+          {
+            "node": "Limit 5 Leads per Run",
             "type": "main",
             "index": 0
           }
@@ -513,7 +1172,12 @@
   "active": false,
   "pinData": {},
   "settings": {
-    "executionOrder": "v1"
+    "executionOrder": "v1",
+    "timezone": "Asia/Manila",
+    "executionTimeout": 300,
+    "saveDataErrorExecution": "all",
+    "saveDataSuccessExecution": "all",
+    "saveExecutionProgress": true
   },
   "versionId": "v1-outreachengine-ai",
   "tags": [],
